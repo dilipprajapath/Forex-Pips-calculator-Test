@@ -166,10 +166,10 @@
                 
                 <div class="space-y-6">
                     <!-- Balance & Risk -->
-                    <div class="grid grid-cols-2 gap-5">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
                         <div>
                             <label class="block text-[11px] font-bold text-zinc-500 mb-2 uppercase tracking-widest">Account Balance ($)</label>
-                            <input type="number" id="accountBalance" placeholder="10000" class="input-field text-sm" step="1" min="0">
+                            <input type="number" id="accountBalance" placeholder="10000" class="input-field text-sm" step="1" min="0" oninput="syncRisk('balance')">
                             <div class="flex gap-2 flex-wrap mt-2.5">
                                 <button onclick="setBalance(5000)" class="btn-quick">5k</button>
                                 <button onclick="setBalance(10000)" class="btn-quick">10k</button>
@@ -178,13 +178,22 @@
                                 <button onclick="setBalance(100000)" class="btn-quick">100k</button>
                             </div>
                         </div>
-                        <div>
-                            <label class="block text-[11px] font-bold text-zinc-500 mb-2 uppercase tracking-widest">Risk (%)</label>
-                            <div class="relative">
-                                <input type="number" id="riskPercent" placeholder="1" class="input-field text-sm pr-8" step="0.1" min="0">
-                                <span class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 font-mono">%</span>
+                        <div class="grid grid-cols-2 gap-x-3 gap-y-2.5">
+                            <div>
+                                <label class="block text-[11px] font-bold text-zinc-500 mb-2 uppercase tracking-widest">Risk (%)</label>
+                                <div class="relative">
+                                    <input type="number" id="riskPercent" placeholder="1.0" class="input-field text-sm pr-8" step="0.1" min="0" oninput="syncRisk('percent')">
+                                    <span class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 font-mono text-xs">%</span>
+                                </div>
                             </div>
-                            <div class="flex gap-2 flex-wrap mt-2.5">
+                            <div>
+                                <label class="block text-[11px] font-bold text-zinc-500 mb-2 uppercase tracking-widest">Risk ($)</label>
+                                <div class="relative">
+                                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-mono text-sm">$</span>
+                                    <input type="number" id="riskAmountInput" placeholder="100" class="input-field text-sm pl-8" step="1" min="0" oninput="syncRisk('amount')">
+                                </div>
+                            </div>
+                            <div class="col-span-2 flex gap-2 flex-wrap">
                                 <button onclick="setRisk(0.5)" class="btn-quick">0.5%</button>
                                 <button onclick="setRisk(1.0)" class="btn-quick">1.0%</button>
                                 <button onclick="setRisk(2.0)" class="btn-quick">2.0%</button>
@@ -352,14 +361,53 @@
         }
         fetchLiveRates();
 
+        let lastEditedRisk = 'percent';
+
+        // Sync Risk Percent and Risk Amount
+        function syncRisk(source) {
+            const balanceInput = document.getElementById('accountBalance');
+            const pctInput = document.getElementById('riskPercent');
+            const amtInput = document.getElementById('riskAmountInput');
+
+            const balance = parseFloat(balanceInput.value);
+            const pct = parseFloat(pctInput.value);
+            const amt = parseFloat(amtInput.value);
+
+            // If no balance exists yet, still track what the user prefers to edit
+            if (isNaN(balance) || balance <= 0) {
+                if (source === 'percent') lastEditedRisk = 'percent';
+                if (source === 'amount') lastEditedRisk = 'amount';
+                return;
+            }
+
+            if (source === 'percent') {
+                lastEditedRisk = 'percent';
+                if (!isNaN(pct)) amtInput.value = (balance * (pct / 100)).toFixed(2);
+                else amtInput.value = '';
+            } else if (source === 'amount') {
+                lastEditedRisk = 'amount';
+                if (!isNaN(amt)) pctInput.value = ((amt / balance) * 100).toFixed(2);
+                else pctInput.value = '';
+            } else if (source === 'balance') {
+                // Determine which risk field to adjust based on what was last edited
+                if (lastEditedRisk === 'percent' && !isNaN(pct)) {
+                    amtInput.value = (balance * (pct / 100)).toFixed(2);
+                } else if (lastEditedRisk === 'amount' && !isNaN(amt)) {
+                    pctInput.value = ((amt / balance) * 100).toFixed(2);
+                }
+            }
+        }
+
         // Set Balance Quick Buttons
         function setBalance(val) {
             document.getElementById('accountBalance').value = val;
+            syncRisk('balance');
         }
 
         // Set Risk Quick Buttons
         function setRisk(val) {
             document.getElementById('riskPercent').value = val;
+            syncRisk('percent');
         }
 
         // Toggle Long/Short
@@ -408,7 +456,7 @@
             
             // Get Input Values
             const balance = parseFloat(document.getElementById('accountBalance').value);
-            const riskPct = parseFloat(document.getElementById('riskPercent').value);
+            const riskAmt = parseFloat(document.getElementById('riskAmountInput').value);
             const entry = parseFloat(document.getElementById('entryPrice').value);
             const sl = parseFloat(document.getElementById('stopLoss').value);
             const tpRaw = document.getElementById('takeProfit').value;
@@ -441,8 +489,8 @@
             errorBox.classList.add('hidden');
             
             // Validation
-            if (!balance || !riskPct || !entry || !sl) {
-                showError("Please fill in Balance, Risk %, Entry, and Stop Loss.");
+            if (!balance || isNaN(riskAmt) || !entry || !sl) {
+                showError("Please fill in Balance, Risk, Entry, and Stop Loss.");
                 return;
             }
 
@@ -469,7 +517,7 @@
             if (slPips <= 0) return showError("Invalid Stop Loss parameters.");
 
             // Risk Amount in Account Currency ($)
-            const riskAmountUSD = balance * (riskPct / 100);
+            const riskAmountUSD = riskAmt;
 
             // Calculate Pip Value in USD (per standard lot)
             let pipValueUSD = 0;
